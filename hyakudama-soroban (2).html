@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>百玉そろばん</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      background: linear-gradient(135deg, #1a0a00 0%, #2d1200 50%, #1a0a00 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Noto Serif JP', 'Noto Serif', Georgia, serif;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent; /* ← タップハイライト全体を消す */
+    }
+    #header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      width: 100%;
+    }
+    h1 {
+      color: #e8c97a;
+      letter-spacing: 0.15em;
+      text-shadow: 0 2px 12px rgba(200,150,30,0.45);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    #app-mode-bar, #ctrl-bar, #sound-bar {
+      display: flex;
+      gap: 5px;
+      align-items: center;
+      flex-shrink: 0;
+      flex-wrap: nowrap;
+    }
+    .label { color: #c8a050; white-space: nowrap; }
+    .btn {
+      background: #3a1a05;
+      color: #c8a050;
+      border: 1.5px solid #6b3a10;
+      border-radius: 6px;
+      font-family: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s;
+      white-space: nowrap;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(0.93); }
+    .btn.active {
+      background: #c8a050;
+      color: #1a0a00;
+      border-color: #e8c97a;
+      box-shadow: 0 0 8px rgba(200,160,50,0.5);
+    }
+    .btn[data-mode="all"] {
+      background: #0a2a0a;
+      color: #70c870;
+      border-color: #205020;
+    }
+    .btn[data-mode="all"].active {
+      background: #50a850;
+      color: #001a00;
+      border-color: #80d880;
+      box-shadow: 0 0 8px rgba(80,180,80,0.5);
+    }
+    .btn[data-mode="all"].count-disabled {
+      background: #1a1a1a !important;
+      color: #444 !important;
+      border-color: #333 !important;
+      cursor: not-allowed !important;
+      box-shadow: none !important;
+      transform: none !important;
+    }
+    #reset-btn {
+      background: #3a0a05;
+      color: #e87050;
+      border-color: #7a3020;
+    }
+    /* 音声・効果音ボタン：ONで明るく、OFFで暗く */
+    .sound-btn {
+      background: #1a2a1a;
+      color: #60a860;
+      border-color: #305030;
+    }
+    .sound-btn.active {
+      background: #285828;
+      color: #90e890;
+      border-color: #50a850;
+      box-shadow: 0 0 6px rgba(80,180,80,0.4);
+    }
+    .sep {
+      width: 1px;
+      background: #5a3010;
+      align-self: stretch;
+      margin: 0 1px;
+      flex-shrink: 0;
+    }
+    #svg-wrap {
+      position: relative;
+      flex-shrink: 0;
+    }
+    #soroban {
+      display: block;
+      filter: drop-shadow(0 6px 24px rgba(0,0,0,0.7));
+    }
+    #count-display {
+      position: absolute;
+      top: 8px;
+      right: 14px;
+      color: #e8c97a;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.9), 0 0 16px rgba(200,150,30,0.4);
+      pointer-events: none;
+      line-height: 1;
+      display: none;
+    }
+    #count-tap-area {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: none;
+      z-index: 10;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #tap-left {
+      position: absolute;
+      top: 0; left: 0;
+      width: 50%; height: 100%;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #tap-right {
+      position: absolute;
+      top: 0; right: 0;
+      width: 50%; height: 100%;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .bead-group { cursor: pointer; }
+    #credit {
+      color: #7a5a30;
+      font-size: 0.7em;
+      margin-top: 6px;
+      opacity: 0.8;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    #credit a {
+      color: #a07840;
+      text-decoration: none;
+    }
+    #credit a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1 id="title">百玉そろばん</h1>
+
+    <!-- アプリモード -->
+    <div id="app-mode-bar">
+      <button class="btn app-btn active" data-app="free">自由移動</button>
+      <button class="btn app-btn"        data-app="count">数唱</button>
+      <div class="sep"></div>
+      <!-- 効果音・音声 ON/OFFボタン -->
+      <button class="btn sound-btn active" id="sfx-btn">🔔 効果音</button>
+      <button class="btn sound-btn active" id="voice-btn">🗣 音声</button>
+    </div>
+
+    <!-- 移動モード＋リセット -->
+    <div id="ctrl-bar">
+      <span class="label">移動：</span>
+      <button class="btn mode-btn active" data-mode="1">1個</button>
+      <button class="btn mode-btn"        data-mode="2">2個</button>
+      <button class="btn mode-btn"        data-mode="5">5個</button>
+      <button class="btn mode-btn"        data-mode="10">10個</button>
+      <button class="btn mode-btn"        data-mode="all">一気</button>
+      <div class="sep"></div>
+      <button class="btn" id="reset-btn">リセット</button>
+    </div>
+  </div>
+
+  <div id="svg-wrap">
+    <svg id="soroban"></svg>
+    <div id="count-display">0</div>
+    <div id="count-tap-area">
+      <div id="tap-left"></div>
+      <div id="tap-right"></div>
+    </div>
+  </div>
+  <p id="credit">※音声は「あみたろの声素材工房（<a href="https://amitaro.net/" target="_blank">https://amitaro.net/</a>）」より</p>
+
+  <script>
+  (function () {
+    const NS   = "http://www.w3.org/2000/svg";
+    const ROWS = 10;
+    const N    = 10;
+
+    // ----------------------------------------------------------------
+    // 状態
+    // ----------------------------------------------------------------
+    const leftCount = Array(ROWS).fill(0);
+    let moveMode  = 1;       // 1 | 2 | 5 | 10 | "all"
+    let appMode   = "free";  // "free" | "count"
+    let sfxOn     = true;    // 効果音ON/OFF
+    let voiceOn   = true;    // 音声ON/OFF
+
+    // ----------------------------------------------------------------
+    // タップ間隔の計測（音声速度の自動調整用）
+    // ----------------------------------------------------------------
+    let lastTapTime   = 0;
+    let tapIntervalMs = 2000; // 初期値：余裕あり
+
+    function recordTap() {
+      const now = Date.now();
+      if (lastTapTime > 0) {
+        // EMAで平滑化（最近のタップに重みをかける）
+        const interval = now - lastTapTime;
+        tapIntervalMs  = tapIntervalMs * 0.5 + interval * 0.5;
+      }
+      lastTapTime = now;
+    }
+
+    // タップ間隔に基づいてSpeechSynthesisのrateを決定
+    // 間隔が短いほど速く読む（最大rate=3.0）
+    function calcSpeechRate() {
+      if (tapIntervalMs > 1500) return 1.0;
+      if (tapIntervalMs > 800)  return 1.5;
+      if (tapIntervalMs > 400)  return 2.2;
+      if (tapIntervalMs > 200)  return 2.7;
+      return 3.0;
+    }
+
+    // ----------------------------------------------------------------
+    // カウント
+    // ----------------------------------------------------------------
+    function getCount() {
+      return leftCount.reduce((s, v) => s + v, 0);
+    }
+    function updateCountDisplay() {
+      document.getElementById("count-display").textContent = getCount();
+    }
+
+    // ----------------------------------------------------------------
+    // 効果音・音声ボタン
+    // ----------------------------------------------------------------
+    document.getElementById("sfx-btn").addEventListener("click", () => {
+      sfxOn = !sfxOn;
+      document.getElementById("sfx-btn").classList.toggle("active", sfxOn);
+    });
+    document.getElementById("voice-btn").addEventListener("click", () => {
+      voiceOn = !voiceOn;
+      document.getElementById("voice-btn").classList.toggle("active", voiceOn);
+      if (!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
+    });
+
+    // ----------------------------------------------------------------
+    // アプリモード切替
+    // ----------------------------------------------------------------
+    document.querySelectorAll(".app-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        appMode = btn.dataset.app;
+        document.querySelectorAll(".app-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const countDisp = document.getElementById("count-display");
+        const tapArea   = document.getElementById("count-tap-area");
+        const allBtn    = document.querySelector(".btn[data-mode='all']");
+        if (appMode === "count") {
+          countDisp.style.display = "block";
+          tapArea.style.display   = "block";
+          // 数唱モード開始時にリセット
+          for (let r = 0; r < ROWS; r++) leftCount[r] = 0;
+          const L = calcLayout();
+          for (let r = 0; r < ROWS; r++) animateRow(r, L, 200, false);
+          updateCountDisplay();
+          allBtn.classList.add("count-disabled");
+          allBtn.disabled = true;
+          if (moveMode === "all") {
+            moveMode = 1;
+            document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+            document.querySelector(".btn[data-mode='1']").classList.add("active");
+          }
+        } else {
+          countDisp.style.display = "none";
+          tapArea.style.display   = "none";
+          allBtn.classList.remove("count-disabled");
+          allBtn.disabled = false;
+        }
+      });
+    });
+
+    // ----------------------------------------------------------------
+    // 移動モード切替
+    // ----------------------------------------------------------------
+    const modeSpeech = { "1": null, "2": "にとび", "5": "ごとび", "10": "じゅっとび", "all": null };
+    // モード用は短いセリフなのでWeb Speech APIで十分（ファイルなし）
+    document.querySelectorAll(".mode-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const raw = btn.dataset.mode;
+        moveMode = raw === "all" ? "all" : parseInt(raw);
+        document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const text = modeSpeech[raw];
+        if (text && voiceOn && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+          setTimeout(() => {
+            const utt = new SpeechSynthesisUtterance(text);
+            utt.lang = "ja-JP"; utt.rate = 1.0; utt.pitch = 1.0;
+            window.speechSynthesis.speak(utt);
+          }, 16);
+        }
+      });
+    });
+
+    // ----------------------------------------------------------------
+    // レイアウト計算
+    // ----------------------------------------------------------------
+    function calcLayout() {
+      const headerH = document.getElementById("header").offsetHeight || 60;
+      const creditH = document.getElementById("credit").offsetHeight || 16;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // 使用可能領域：ヘッダー・クレジット・余白を差し引く
+      const availW = vw   - 8;
+      const availH = vh   - headerH - creditH - 10;
+
+      // 玉サイズをW/H両方から逆算して小さい方を採用
+      // 横：20個分の玉 + フレームパディング(PX*2)
+      // PX = R*1.7, S = R*2+2, RW = N*S*2-2, CW = RW + PX*2
+      // CW ≒ R*(N*2*2 + N*2*2*0 + 1.7*2) + ... → 単純に availW/(N*2*2+4) で概算
+      const unitW = availW / (N * 4 + 4);
+      // 縦：10行分 + フレームパディング(PY*2)
+      // RH = S+4 = R*2+6, CH = ROWS*RH + PY*2 ≒ ROWS*(R*2+6) + R*1.7*2
+      const unitH = availH / (ROWS * 2 + 10);
+
+      const R  = Math.max(8, Math.min(22, Math.floor(Math.min(unitW, unitH))));
+      const S  = R * 2 + 2;
+      const PX = Math.max(14, R * 1.5);
+      const PY = Math.max(14, R * 1.5);
+      const RH = S + 4;
+      const RW = N * S * 2 - 2;
+      const CW = RW + PX * 2;
+      const CH = ROWS * RH + PY * 2;
+      const TS = Math.max(10, Math.min(22, R * 0.95));
+      const BS = Math.max(8,  Math.min(13, R * 0.68));
+      return { R, S, PX, PY, RH, RW, CW, CH, TS, BS };
+    }
+
+    // ----------------------------------------------------------------
+    // SVGヘルパー
+    // ----------------------------------------------------------------
+    function svgEl(tag, attrs, parent) {
+      const e = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+      if (parent) parent.appendChild(e);
+      return e;
+    }
+    function getBeadColor(row, physIdx) {
+      if (row < 5) return physIdx < 5 ? "yellow" : "red";
+      else         return physIdx < 5 ? "red"    : "yellow";
+    }
+
+    // ----------------------------------------------------------------
+    // 効果音：木と木がぶつかる音（こもった打撃感）
+    // ----------------------------------------------------------------
+    let audioCtx = null;
+    function playKnock() {
+      if (!sfxOn) return;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = audioCtx;
+        const sr  = ctx.sampleRate;
+        const now = ctx.currentTime;
+
+        // ① 打撃ノイズバースト（ごく短い）
+        const impLen = Math.floor(sr * 0.005);
+        const impBuf = ctx.createBuffer(1, impLen, sr);
+        const impD   = impBuf.getChannelData(0);
+        for (let i = 0; i < impLen; i++)
+          impD[i] = (Math.random() * 2 - 1) * Math.exp(-i / (sr * 0.001));
+        const impSrc = ctx.createBufferSource();
+        impSrc.buffer = impBuf;
+
+        // ② 木の共鳴：中低域のサイン波（木の「コン」感）
+        const osc1 = ctx.createOscillator();
+        osc1.type = "sine";
+        osc1.frequency.setValueAtTime(520, now);
+        osc1.frequency.exponentialRampToValueAtTime(280, now + 0.08);
+
+        const osc2 = ctx.createOscillator();
+        osc2.type = "sine";
+        osc2.frequency.setValueAtTime(900, now);
+        osc2.frequency.exponentialRampToValueAtTime(500, now + 0.04);
+
+        // ③ エンベロープ（鋭いアタック、短い余韻）
+        const env1 = ctx.createGain();
+        env1.gain.setValueAtTime(0, now);
+        env1.gain.linearRampToValueAtTime(0.7, now + 0.002);
+        env1.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+        const env2 = ctx.createGain();
+        env2.gain.setValueAtTime(0, now);
+        env2.gain.linearRampToValueAtTime(0.35, now + 0.001);
+        env2.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+
+        const impGain = ctx.createGain();
+        impGain.gain.setValueAtTime(1.0, now);
+
+        // バンドパスフィルター（木のこもり感：300〜1200Hz帯を強調）
+        const bpf = ctx.createBiquadFilter();
+        bpf.type = "bandpass";
+        bpf.frequency.value = 600;
+        bpf.Q.value = 0.8;
+
+        // ローパスで高周波の耳障りな成分をカット
+        const lpf = ctx.createBiquadFilter();
+        lpf.type = "lowpass";
+        lpf.frequency.value = 2000;
+
+        const master = ctx.createGain();
+        master.gain.setValueAtTime(0.85, now);
+
+        impSrc.connect(impGain); impGain.connect(bpf);
+        osc1.connect(env1);      env1.connect(bpf);
+        osc2.connect(env2);      env2.connect(bpf);
+        bpf.connect(lpf);
+        lpf.connect(master);
+        master.connect(ctx.destination);
+
+        impSrc.start(now); impSrc.stop(now + 0.01);
+        osc1.start(now);   osc1.stop(now + 0.13);
+        osc2.start(now);   osc2.stop(now + 0.07);
+      } catch(e) {}
+    }
+
+    // ----------------------------------------------------------------
+    // 音声ファイルマッピング
+    // ----------------------------------------------------------------
+    const VOICE_FILES = {
+      tens_end:  { 10:"num010_02_01.wav", 20:"num020_02_01.wav", 30:"num030_02_01.wav",
+                   40:"num040_02_01.wav", 50:"num050_02_01.wav", 60:"num060_02_01.wav",
+                   70:"num070_02_01.wav", 80:"num080_02_01.wav", 90:"num090_02_01.wav" },
+      tens_link: { 10:"num010_02_02.wav", 20:"num020_02_02.wav", 30:"num030_02_02.wav",
+                   40:"num040_02_02.wav", 50:"num050_02_02.wav", 60:"num060_02_02.wav",
+                   70:"num070_02_02.wav", 80:"num080_02_02.wav", 90:"num090_02_02.wav" },
+      ones_up:   { 0:"num000_02_01.wav", 1:"num001_02_01.wav", 2:"num002_02_01.wav",
+                   3:"num003_02_01.wav", 4:"num004_02_02.wav", 5:"num005_02_01.wav",
+                   6:"num006_02_01.wav", 7:"num007_02_02.wav", 8:"num008_02_01.wav",
+                   9:"num009_02_02.wav" },
+      ones_down: { 0:"num000_02_01.wav", 1:"num001_02_01.wav", 2:"num002_02_01.wav",
+                   3:"num003_02_01.wav", 4:"num004_02_01.wav", 5:"num005_02_01.wav",
+                   6:"num006_02_01.wav", 7:"num007_02_01.wav", 8:"num008_02_01.wav",
+                   9:"num009_02_01.wav" },
+      hundred:   "num100_02_01.wav"
+    };
+
+    // 全ファイル名の重複なしリスト
+    const ALL_VOICE_FILES = [...new Set([
+      ...Object.values(VOICE_FILES.tens_end),
+      ...Object.values(VOICE_FILES.tens_link),
+      ...Object.values(VOICE_FILES.ones_up),
+      ...Object.values(VOICE_FILES.ones_down),
+      VOICE_FILES.hundred
+    ])];
+
+    // AudioBufferキャッシュ
+    const audioBuffers = {};
+    let voiceReady = false;
+
+    // 起動時に全ファイルをfetch→デコードしてキャッシュ
+    async function preloadVoiceFiles() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const promises = ALL_VOICE_FILES.map(async fname => {
+        try {
+          const res = await fetch(fname);
+          if (!res.ok) throw new Error(`404: ${fname}`);
+          const ab  = await res.arrayBuffer();
+          audioBuffers[fname] = await audioCtx.decodeAudioData(ab);
+        } catch(e) {
+          console.warn("音声ファイル読み込み失敗:", fname, e.message);
+        }
+      });
+      await Promise.all(promises);
+      voiceReady = true;
+      console.log("音声プリロード完了");
+    }
+
+    // ----------------------------------------------------------------
+    // カウントを音声ファイルの組み合わせに変換
+    // ----------------------------------------------------------------
+    function getVoiceFiles(count, up) {
+      const ones_map = up ? VOICE_FILES.ones_up : VOICE_FILES.ones_down;
+      if (count === 100) return [VOICE_FILES.hundred];
+      if (count === 0)   return [ones_map[0]];
+      const t = Math.floor(count / 10) * 10;  // 十の位（10,20,...）
+      const o = count % 10;                    // 一の位
+      if (o === 0) return [VOICE_FILES.tens_end[t]];           // 10,20,...90
+      if (t === 0) return [ones_map[o]];                       // 1〜9
+      return [VOICE_FILES.tens_link[t], ones_map[o]];          // 11〜99（つなぎ+一の位）
+    }
+
+    // ----------------------------------------------------------------
+    // AudioBufferを連続再生（隙間なし）
+    // ----------------------------------------------------------------
+    function playVoiceBuffers(fnames) {
+      if (!voiceReady || !audioCtx) return;
+      // 再生中のものを停止
+      if (currentVoiceNodes) {
+        currentVoiceNodes.forEach(n => { try { n.stop(); } catch(e){} });
+      }
+      currentVoiceNodes = [];
+
+      let when = audioCtx.currentTime;
+      for (const fname of fnames) {
+        const buf = audioBuffers[fname];
+        if (!buf) continue;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(audioCtx.destination);
+        src.start(when);
+        when += buf.duration;
+        currentVoiceNodes.push(src);
+      }
+    }
+    let currentVoiceNodes = null;
+
+    // ----------------------------------------------------------------
+    // 音声読み上げ（外部から呼ぶ関数）
+    // ----------------------------------------------------------------
+    function speakCount(count, up) {
+      if (!voiceOn) return;
+      if (voiceReady) {
+        // プリロード済み → 即再生（ラグなし）
+        playVoiceBuffers(getVoiceFiles(count, up));
+      } else {
+        // フォールバック：Web Speech API
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(countToText(count, up));
+        utt.lang = "ja-JP"; utt.rate = calcSpeechRate();
+        window.speechSynthesis.speak(utt);
+      }
+    }
+
+    // フォールバック用テキスト変換（既存関数を流用）
+    const onesUp   = ["れい","いち","に","さん","し","ご","ろく","しち","はち","く"];
+    const onesDown = ["れい","いち","に","さん","よん","ご","ろく","なな","はち","きゅう"];
+    const tens     = ["","じゅう","にじゅう","さんじゅう","よんじゅう",
+                      "ごじゅう","ろくじゅう","ななじゅう","はちじゅう","きゅうじゅう"];
+    function countToText(count, up) {
+      if (count === 100) return "ひゃく";
+      if (count === 0)   return "れい";
+      const t = Math.floor(count / 10), o = count % 10;
+      const ot = up ? onesUp : onesDown;
+      if (o === 0) return tens[t];
+      if (t === 0) return ot[o];
+      return tens[t] + ot[o];
+    }
+
+    // ----------------------------------------------------------------
+    // X座標計算
+    // ----------------------------------------------------------------
+    function calcX(row, physIdx, L) {
+      const { R, S, PX, RW } = L;
+      const lc        = leftCount[row];
+      const leftEdge  = PX + R;
+      const rightEdge = PX + RW - R;
+      if (physIdx < lc) return leftEdge + physIdx * S;
+      const rIdx = N - 1 - physIdx;
+      return rightEdge - rIdx * S;
+    }
+
+    // ----------------------------------------------------------------
+    // 行アニメーション
+    // ----------------------------------------------------------------
+    const beadEls = [];
+
+    function animateRow(row, L, animMs, hitSound) {
+      const { R } = L;
+      const durSec = (animMs / 1000).toFixed(3) + "s";
+      const trans  = `cx ${durSec} cubic-bezier(0.25,0.46,0.45,0.94)`;
+      for (let i = 0; i < N; i++) {
+        if (!beadEls[row] || !beadEls[row][i]) continue;
+        const { circle, highlight, shadow } = beadEls[row][i];
+        const newCx = calcX(row, i, L);
+        circle.style.transition    = trans;
+        highlight.style.transition = trans;
+        shadow.style.transition    = trans;
+        circle.setAttribute("cx",    newCx);
+        highlight.setAttribute("cx", newCx - R * 0.28);
+        shadow.setAttribute("cx",    newCx);
+      }
+      if (hitSound) setTimeout(playKnock, animMs);
+    }
+
+    // ----------------------------------------------------------------
+    // 自由移動モード：玉タップ処理
+    // ----------------------------------------------------------------
+    function handleBeadTap(row, physIdx) {
+      const lc = leftCount[row];
+      let newLc;
+      const isLeft = physIdx < lc;
+      if (moveMode === "all") {
+        newLc = isLeft ? physIdx : physIdx + 1;
+      } else {
+        newLc = isLeft
+          ? lc - Math.min(moveMode, physIdx + 1)
+          : lc + Math.min(moveMode, N - physIdx);
+      }
+      if (newLc === lc) return;
+      leftCount[row] = newLc;
+      const L = calcLayout();
+      animateRow(row, L, Math.min(220, Math.max(60, Math.abs(newLc - lc) * 22)), true);
+    }
+
+    // ----------------------------------------------------------------
+    // 数唱モード：左右タップ処理
+    // ----------------------------------------------------------------
+    function handleCountTap(direction) {
+      recordTap();
+
+      const current = getCount();
+      let target;
+
+      if (moveMode === "all") {
+        if (direction === "right") {
+          const activeRow = Math.min(9, Math.floor(current / 10));
+          const canMove   = N - leftCount[activeRow];
+          target = canMove > 0
+            ? current + canMove
+            : (() => {
+                const nr = activeRow + 1;
+                return nr < ROWS ? current + (N - leftCount[nr]) : current;
+              })();
+        } else {
+          const activeRow = Math.min(9, Math.floor((Math.max(1, current) - 1) / 10));
+          const canMove   = leftCount[activeRow];
+          target = canMove > 0
+            ? current - canMove
+            : (() => {
+                const pr = activeRow - 1;
+                return pr >= 0 ? current - leftCount[pr] : current;
+              })();
+        }
+      } else {
+        if (direction === "right") {
+          const rem = current % moveMode;
+          target = rem === 0 ? current + moveMode : current + (moveMode - rem);
+        } else {
+          const rem = current % moveMode;
+          target = rem === 0 ? current - moveMode : current - rem;
+        }
+      }
+
+      target = Math.max(0, Math.min(100, target));
+      if (target === current) return;
+
+      applyCountDelta(target - current, direction === "right");
+    }
+
+    // ----------------------------------------------------------------
+    // delta 分だけ玉を移動
+    // ----------------------------------------------------------------
+    function applyCountDelta(delta, isUp) {
+      const L = calcLayout();
+      const affectedRows = new Set();
+      let remaining = Math.abs(delta);
+
+      if (delta > 0) {
+        for (let row = 0; row < ROWS && remaining > 0; row++) {
+          const can = N - leftCount[row];
+          if (can === 0) continue;
+          const mv = Math.min(remaining, can);
+          leftCount[row] += mv;
+          remaining -= mv;
+          affectedRows.add(row);
+        }
+      } else {
+        for (let row = ROWS - 1; row >= 0 && remaining > 0; row--) {
+          const can = leftCount[row];
+          if (can === 0) continue;
+          const mv = Math.min(remaining, can);
+          leftCount[row] -= mv;
+          remaining -= mv;
+          affectedRows.add(row);
+        }
+      }
+
+      const animMs   = Math.min(220, Math.max(60, Math.abs(delta) * 22));
+      affectedRows.forEach(row => animateRow(row, L, animMs, false));
+
+      const newCount = getCount();
+      setTimeout(() => {
+        playKnock();
+        speakCount(newCount, isUp);
+      }, animMs);
+
+      updateCountDisplay();
+    }
+
+    // ----------------------------------------------------------------
+    // タップエリアのイベント登録
+    // ----------------------------------------------------------------
+    function setupCountTapArea() {
+      function onRight(e) { e.preventDefault(); handleCountTap("right"); }
+      function onLeft(e)  { e.preventDefault(); handleCountTap("left");  }
+      const tapR = document.getElementById("tap-right");
+      const tapL = document.getElementById("tap-left");
+      tapR.addEventListener("click",    onRight);
+      tapR.addEventListener("touchend", onRight, {passive: false});
+      tapL.addEventListener("click",    onLeft);
+      tapL.addEventListener("touchend", onLeft,  {passive: false});
+    }
+
+    // ----------------------------------------------------------------
+    // リセット
+    // ----------------------------------------------------------------
+    document.getElementById("reset-btn").addEventListener("click", () => {
+      const anyMoved = leftCount.some(v => v > 0);
+      for (let r = 0; r < ROWS; r++) leftCount[r] = 0;
+      const L = calcLayout();
+      for (let r = 0; r < ROWS; r++) animateRow(r, L, 200, false);
+      if (anyMoved) setTimeout(playKnock, 210);
+      if (appMode === "count") setTimeout(updateCountDisplay, 220);
+    });
+
+    // ----------------------------------------------------------------
+    // 全体描画
+    // ----------------------------------------------------------------
+    const svg   = document.getElementById("soroban");
+    const title = document.getElementById("title");
+
+    function build() {
+      const L = calcLayout();
+      const { R, S, PX, PY, RH, RW, CW, CH, TS, BS } = L;
+
+      title.style.fontSize = TS + "px";
+      title.style.marginBottom = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("app-mode-bar").style.marginBottom = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("ctrl-bar").style.marginBottom     = Math.max(1, TS * 0.12) + "px";
+      document.querySelectorAll(".btn").forEach(btn => {
+        btn.style.fontSize     = BS + "px";
+        btn.style.padding      = `${BS*0.28}px ${BS*0.55}px`;
+        btn.style.borderRadius = Math.max(3, BS*0.38) + "px";
+      });
+      document.querySelectorAll(".label").forEach(el => {
+        el.style.fontSize = BS + "px";
+      });
+      document.getElementById("count-display").style.fontSize = Math.max(16, R * 1.6) + "px";
+      // クレジットフォントサイズも動的に
+      const credit = document.getElementById("credit");
+      credit.style.fontSize  = Math.max(8, Math.min(11, R * 0.55)) + "px";
+      credit.style.marginTop = "2px";
+
+      svg.setAttribute("width",   CW);
+      svg.setAttribute("height",  CH);
+      svg.setAttribute("viewBox", `0 0 ${CW} ${CH}`);
+      svg.innerHTML = "";
+      beadEls.length = 0;
+
+      // defs
+      const defs = svgEl("defs", {}, svg);
+      const woodGrad = svgEl("linearGradient",
+        {id:"woodGrad",x1:"0%",y1:"0%",x2:"100%",y2:"100%"},defs);
+      [["0%","#7a3b10"],["20%","#5c2508"],["50%","#8b4513"],
+       ["75%","#6b2f0a"],["100%","#4a1a05"]]
+        .forEach(([o,c])=>svgEl("stop",{offset:o,"stop-color":c},woodGrad));
+      const rodGrad = svgEl("linearGradient",
+        {id:"rodGrad",x1:"0%",y1:"0%",x2:"0%",y2:"100%"},defs);
+      [["0%","#c8c8c8"],["35%","#e8e8e8"],["65%","#b0b0b0"],["100%","#888888"]]
+        .forEach(([o,c])=>svgEl("stop",{offset:o,"stop-color":c},rodGrad));
+      const bRed = svgEl("radialGradient",
+        {id:"beadGradRed",cx:"35%",cy:"30%",r:"65%"},defs);
+      [["0%","#ff6a6a"],["40%","#e82020"],["100%","#8b0000"]]
+        .forEach(([o,c])=>svgEl("stop",{offset:o,"stop-color":c},bRed));
+      const bYellow = svgEl("radialGradient",
+        {id:"beadGradYellow",cx:"35%",cy:"30%",r:"65%"},defs);
+      [["0%","#f0f080"],["40%","#c8c800"],["100%","#7a7a00"]]
+        .forEach(([o,c])=>svgEl("stop",{offset:o,"stop-color":c},bYellow));
+
+      // フレーム
+      svgEl("rect",{x:4,y:4,width:CW-4,height:CH-4,rx:8,ry:8,
+        fill:"rgba(0,0,0,0.25)"},svg);
+      svgEl("rect",{x:0,y:0,width:CW,height:CH,rx:8,ry:8,
+        fill:"url(#woodGrad)",stroke:"#3a1f0a","stroke-width":2.5},svg);
+      svgEl("rect",{x:14,y:14,width:CW-28,height:CH-28,rx:4,ry:4,
+        fill:"none",stroke:"#5c2d0a","stroke-width":1.5,opacity:0.5},svg);
+
+      // 棒と玉
+      for (let row = 0; row < ROWS; row++) {
+        const ry   = PY + row * RH + RH / 2;
+        const x1   = PX - 4, x2 = PX + RW + 4;
+        const rodW = Math.max(2, R * 0.2);
+
+        svgEl("line",{x1,y1:ry+2,x2,y2:ry+2,
+          stroke:"rgba(0,0,0,0.18)","stroke-width":rodW,"stroke-linecap":"round"},svg);
+        svgEl("line",{x1,y1:ry,x2,y2:ry,
+          stroke:"url(#rodGrad)","stroke-width":rodW,"stroke-linecap":"round"},svg);
+        svgEl("line",{x1,y1:ry-1,x2,y2:ry-1,
+          stroke:"rgba(255,255,255,0.4)",
+          "stroke-width":Math.max(1,rodW*0.4),"stroke-linecap":"round"},svg);
+
+        beadEls[row] = [];
+
+        for (let i = 0; i < N; i++) {
+          const color       = getBeadColor(row, i);
+          const isRed       = color === "red";
+          const gradId      = isRed ? "beadGradRed" : "beadGradYellow";
+          const shadowColor = isRed ? "rgba(140,20,20,0.35)" : "rgba(140,140,0,0.35)";
+          const strokeColor = isRed ? "#7a0000" : "#7a7a00";
+          const cx = calcX(row, i, L);
+          const cy = ry;
+
+          const g = svgEl("g",{class:"bead-group"},svg);
+          const shadow = svgEl("ellipse",{
+            cx, cy:cy+R*0.55, rx:R*0.85, ry:R*0.28, fill:shadowColor},g);
+          const circle = svgEl("circle",{
+            cx, cy, r:R, fill:`url(#${gradId})`,
+            stroke:strokeColor,"stroke-width":Math.max(1,R*0.07)},g);
+          const highlight = svgEl("ellipse",{
+            cx:cx-R*0.28, cy:cy-R*0.3, rx:R*0.38, ry:R*0.22,
+            fill:"rgba(255,255,255,0.55)",style:"pointer-events:none"},g);
+
+          beadEls[row][i] = { circle, highlight, shadow };
+
+          ;(function(r, idx) {
+            function onTap(e) {
+              if (appMode === "count") return;
+              e.preventDefault();
+              handleBeadTap(r, idx);
+            }
+            g.addEventListener("click",    onTap);
+            g.addEventListener("touchend", onTap, {passive:false});
+          })(row, i);
+        }
+      }
+
+      // 台脚
+      svgEl("rect",{x:CW*0.2, y:CH-6,width:CW*0.18,height:14,rx:3,
+        fill:"url(#woodGrad)",stroke:"#3a1f0a","stroke-width":1.5},svg);
+      svgEl("rect",{x:CW*0.62,y:CH-6,width:CW*0.18,height:14,rx:3,
+        fill:"url(#woodGrad)",stroke:"#3a1f0a","stroke-width":1.5},svg);
+    }
+
+    // ----------------------------------------------------------------
+    // 初期化
+    // ----------------------------------------------------------------
+    setupCountTapArea();
+    // AudioContextはユーザー操作後に生成が必要なブラウザもある
+    // → 最初のタップで audioCtx を生成し、その直後にプリロード開始
+    let voicePreloadStarted = false;
+    function ensureAudioAndPreload() {
+      if (voicePreloadStarted) return;
+      voicePreloadStarted = true;
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      preloadVoiceFiles();
+    }
+    // ボタン類・タップエリアの最初の操作でプリロード開始
+    document.addEventListener("click",    ensureAudioAndPreload, { once: true });
+    document.addEventListener("touchend", ensureAudioAndPreload, { once: true });
+
+    let resizeTimer;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(build, 150);
+    });
+
+    // DOMレンダリング後に正確なoffsetHeightを取得してbuild
+    requestAnimationFrame(() => requestAnimationFrame(build));
+  })();
+  </script>
+</body>
+</html>
