@@ -511,43 +511,46 @@
     // ----------------------------------------------------------------
     // AudioBufferを連続再生（隙間なし）
     // ----------------------------------------------------------------
-function playVoiceBuffers(fnames) {
-  if (!voiceReady || !audioCtx) return;
+async function playVoiceBuffers(fnames) {
 
-  // 再生中停止
+  // 再生停止
   if (currentVoiceNodes) {
-    currentVoiceNodes.forEach(n => {
-      try { n.stop(); } catch(e){}
+    currentVoiceNodes.forEach(a => {
+      try {
+        a.pause();
+        a.currentTime = 0;
+      } catch(e){}
     });
   }
 
   currentVoiceNodes = [];
 
-  // ★ 2wav以上を連結する時だけ2倍速
+  // 2wav以上なら高速化
   const playbackRate = fnames.length >= 2 ? 2.0 : 1.0;
-
-  let when = audioCtx.currentTime;
 
   for (const fname of fnames) {
 
-    const buf = audioBuffers[fname];
-    if (!buf) continue;
+    const audio = new Audio(fname);
 
-    const src = audioCtx.createBufferSource();
+    // ★ 速度変更
+    audio.playbackRate = playbackRate;
 
-    src.buffer = buf;
+    // ★ ピッチ維持
+    audio.preservesPitch = true;
 
-    // ★ 再生速度変更
-    src.playbackRate.value = playbackRate;
+    // Safari系
+    if ("webkitPreservesPitch" in audio) {
+      audio.webkitPreservesPitch = true;
+    }
 
-    src.connect(audioCtx.destination);
+    currentVoiceNodes.push(audio);
 
-    src.start(when);
+    await audio.play();
 
-    // ★ 再生時間補正
-    when += buf.duration / playbackRate;
-
-    currentVoiceNodes.push(src);
+    // 再生終了待ち
+    await new Promise(resolve => {
+      audio.onended = resolve;
+    });
   }
 }
     let currentVoiceNodes = null;
