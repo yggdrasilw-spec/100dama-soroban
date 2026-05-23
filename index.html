@@ -511,48 +511,26 @@
     // ----------------------------------------------------------------
     // AudioBufferを連続再生（隙間なし）
     // ----------------------------------------------------------------
-async function playVoiceBuffers(fnames) {
+    function playVoiceBuffers(fnames) {
+      if (!voiceReady || !audioCtx) return;
+      // 再生中のものを停止
+      if (currentVoiceNodes) {
+        currentVoiceNodes.forEach(n => { try { n.stop(); } catch(e){} });
+      }
+      currentVoiceNodes = [];
 
-  // 再生停止
-  if (currentVoiceNodes) {
-    currentVoiceNodes.forEach(a => {
-      try {
-        a.pause();
-        a.currentTime = 0;
-      } catch(e){}
-    });
-  }
-
-  currentVoiceNodes = [];
-
-  // 2wav以上なら高速化
-  const playbackRate = fnames.length >= 2 ? 2.0 : 1.0;
-
-  for (const fname of fnames) {
-
-    const audio = new Audio(fname);
-
-    // ★ 速度変更
-    audio.playbackRate = playbackRate;
-
-    // ★ ピッチ維持
-    audio.preservesPitch = true;
-
-    // Safari系
-    if ("webkitPreservesPitch" in audio) {
-      audio.webkitPreservesPitch = true;
+      let when = audioCtx.currentTime;
+      for (const fname of fnames) {
+        const buf = audioBuffers[fname];
+        if (!buf) continue;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.connect(audioCtx.destination);
+        src.start(when);
+        when += buf.duration;
+        currentVoiceNodes.push(src);
+      }
     }
-
-    currentVoiceNodes.push(audio);
-
-    await audio.play();
-
-    // 再生終了待ち
-    await new Promise(resolve => {
-      audio.onended = resolve;
-    });
-  }
-}
     let currentVoiceNodes = null;
 
     // ----------------------------------------------------------------
@@ -592,10 +570,10 @@ async function playVoiceBuffers(fnames) {
     // X座標計算
     // ----------------------------------------------------------------
     function calcX(row, physIdx, L) {
-      const { R, S, PX, RW } = L;
+      const { R, S, PX } = L;
       const lc        = leftCount[row];
       const leftEdge  = PX + R;
-      const rightEdge = PX + RW - R;
+      const rightEdge = leftEdge + (N * 2 - 1) * S;
       if (physIdx < lc) return leftEdge + physIdx * S;
       const rIdx = N - 1 - physIdx;
       return rightEdge - rIdx * S;
