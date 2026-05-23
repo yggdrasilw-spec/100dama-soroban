@@ -333,14 +333,18 @@
       const availW = vw   - 8;
       const availH = vh   - headerH - creditH - 10;
 
-      // 玉サイズをW/H両方から逆算して小さい方を採用
-      // 横：20個分の玉 + フレームパディング(PX*2)
-      // PX = R*1.7, S = R*2+2, RW = N*S*2-2, CW = RW + PX*2
-      // CW ≒ R*(N*2*2 + N*2*2*0 + 1.7*2) + ... → 単純に availW/(N*2*2+4) で概算
-      const unitW = availW / (N * 4 + 4);
-      // 縦：10行分 + フレームパディング(PY*2)
-      // RH = S+4 = R*2+6, CH = ROWS*RH + PY*2 ≒ ROWS*(R*2+6) + R*1.7*2
-      const unitH = availH / (ROWS * 2 + 10);
+      // 玉サイズをW/H両方から正確に逆算して小さい方を採用
+      // CW = RW + PX*2 = (N*S*2-2) + PX*2, S = R*2+2
+      // PX = max(14, R*1.5)
+      //   PX=R*1.5 のとき: CW = 40R+38+3R = 43R+38  → R = (availW-38)/43
+      //   PX=14 のとき:    CW = 40R+38+28 = 40R+66  → R = (availW-66)/40
+      // 両方計算して小さい方（確実に収まる方）を採用
+      const unitW = Math.min((availW - 38) / 43, (availW - 66) / 40);
+      // CH = ROWS*RH + PY*2 = ROWS*(S+4) + PY*2, S = R*2+2
+      // PY = max(14, R*1.5)
+      //   PY=R*1.5 のとき: CH = ROWS*(2R+6)+3R = (2*ROWS+3)*R+6*ROWS → R = (availH-6*ROWS)/(2*ROWS+3)
+      //   PY=14 のとき:    CH = ROWS*(2R+6)+28 = 2*ROWS*R+6*ROWS+28  → R = (availH-6*ROWS-28)/(2*ROWS)
+      const unitH = Math.min((availH - 6 * ROWS) / (2 * ROWS + 3), (availH - 6 * ROWS - 28) / (2 * ROWS));
 
       const R  = Math.max(8, Math.min(22, Math.floor(Math.min(unitW, unitH))));
       const S  = R * 2 + 2;
@@ -570,10 +574,10 @@
     // X座標計算
     // ----------------------------------------------------------------
     function calcX(row, physIdx, L) {
-      const { R, S, PX } = L;
+      const { R, S, PX, RW } = L;
       const lc        = leftCount[row];
       const leftEdge  = PX + R;
-      const rightEdge = leftEdge + (N * 2 - 1) * S;
+      const rightEdge = PX + RW - R;
       if (physIdx < lc) return leftEdge + physIdx * S;
       const rIdx = N - 1 - physIdx;
       return rightEdge - rIdx * S;
