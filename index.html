@@ -33,12 +33,28 @@
       font-weight: 700;
       white-space: nowrap;
     }
-    #app-mode-bar, #ctrl-bar, #sound-bar {
+    #app-mode-bar, #ctrl-bar, #sound-bar, #count-unit-bar, #demo-bar {
       display: flex;
       gap: 5px;
       align-items: center;
       flex-shrink: 0;
       flex-wrap: nowrap;
+    }
+    .demo-btn {
+      background: #0a1a2a;
+      color: #70b8e8;
+      border-color: #204060;
+    }
+    .demo-btn:active {
+      background: #1a3a5a;
+      color: #a8d8f8;
+      border-color: #4080b0;
+    }
+    .demo-btn.running {
+      background: #204060;
+      color: #c8e8ff;
+      border-color: #6090c0;
+      box-shadow: 0 0 8px rgba(80,160,240,0.4);
     }
     .label { color: #c8a050; white-space: nowrap; }
     .btn {
@@ -170,6 +186,7 @@
     <div id="app-mode-bar">
       <button class="btn app-btn active" data-app="free">自由移動</button>
       <button class="btn app-btn"        data-app="count">数唱</button>
+      <button class="btn app-btn"        data-app="demo">合成・分解</button>
       <div class="sep"></div>
       <!-- 効果音・音声 ON/OFFボタン -->
       <button class="btn sound-btn active" id="sfx-btn">🔔 効果音</button>
@@ -186,6 +203,21 @@
       <button class="btn mode-btn"        data-mode="all">一気</button>
       <div class="sep"></div>
       <button class="btn" id="reset-btn">リセット</button>
+    </div>
+
+    <!-- 数唱モード専用：単位切替バー（数唱モード時のみ表示） -->
+    <div id="count-unit-bar" style="display:none;">
+      <span class="label">単位：</span>
+      <button class="btn unit-btn active" data-unit="1">×1</button>
+      <button class="btn unit-btn"        data-unit="10">×10</button>
+      <button class="btn unit-btn"        data-unit="100">×100</button>
+    </div>
+
+    <!-- デモバー（分解・階段・合成）：常時表示、自由移動モードの下 -->
+    <div id="demo-bar" style="display:none;">
+      <button class="btn demo-btn" id="bunkai-btn">分解</button>
+      <button class="btn demo-btn" id="kaidan-btn">階段</button>
+      <button class="btn demo-btn" id="gousei-btn">合成</button>
     </div>
   </div>
 
@@ -209,10 +241,13 @@
     // 状態
     // ----------------------------------------------------------------
     const leftCount = Array(ROWS).fill(0);
-    let moveMode  = 1;       // 1 | 2 | 5 | 10 | "all"
-    let appMode   = "free";  // "free" | "count"
-    let sfxOn     = true;    // 効果音ON/OFF
-    let voiceOn   = true;    // 音声ON/OFF
+    let moveMode  = 1;
+    let appMode   = "free";
+    let sfxOn     = true;
+    let voiceOn   = true;
+    let countUnit = 1;       // 数唱モードで玉1個あたりのカウント単位 1|10|100
+    let demoRunning = false; // 分解/階段/合成のアニメ実行中フラグ
+    let demoStopped = false; // タップによる中断フラグ
 
     // ----------------------------------------------------------------
     // タップ間隔の計測（音声速度の自動調整用）
@@ -246,8 +281,11 @@
     function getCount() {
       return leftCount.reduce((s, v) => s + v, 0);
     }
+    function getDisplayCount() {
+      return getCount() * countUnit;
+    }
     function updateCountDisplay() {
-      document.getElementById("count-display").textContent = getCount();
+      document.getElementById("count-display").textContent = getDisplayCount();
     }
 
     // ----------------------------------------------------------------
@@ -274,10 +312,13 @@
         const countDisp = document.getElementById("count-display");
         const tapArea   = document.getElementById("count-tap-area");
         const allBtn    = document.querySelector(".btn[data-mode='all']");
+        const unitBar   = document.getElementById("count-unit-bar");
+        const demoBar   = document.getElementById("demo-bar");
         if (appMode === "count") {
           countDisp.style.display = "block";
           tapArea.style.display   = "block";
-          // 数唱モード開始時にリセット
+          unitBar.style.display   = "flex";
+          demoBar.style.display   = "none";
           for (let r = 0; r < ROWS; r++) leftCount[r] = 0;
           const L = calcLayout();
           for (let r = 0; r < ROWS; r++) animateRow(r, L, 200, false);
@@ -289,9 +330,18 @@
             document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
             document.querySelector(".btn[data-mode='1']").classList.add("active");
           }
+        } else if (appMode === "demo") {
+          countDisp.style.display = "none";
+          tapArea.style.display   = "none";
+          unitBar.style.display   = "none";
+          demoBar.style.display   = "flex";
+          allBtn.classList.remove("count-disabled");
+          allBtn.disabled = false;
         } else {
           countDisp.style.display = "none";
           tapArea.style.display   = "none";
+          unitBar.style.display   = "none";
+          demoBar.style.display   = "none";
           allBtn.classList.remove("count-disabled");
           allBtn.disabled = false;
         }
@@ -302,7 +352,6 @@
     // 移動モード切替
     // ----------------------------------------------------------------
     const modeSpeech = { "1": null, "2": "にとび", "5": "ごとび", "10": "じゅっとび", "all": null };
-    // モード用は短いセリフなのでWeb Speech APIで十分（ファイルなし）
     document.querySelectorAll(".mode-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const raw = btn.dataset.mode;
@@ -322,6 +371,38 @@
     });
 
     // ----------------------------------------------------------------
+    // 数唱単位切替（×1 / ×10 / ×100）
+    // ----------------------------------------------------------------
+    document.querySelectorAll(".unit-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        countUnit = parseInt(btn.dataset.unit);
+        document.querySelectorAll(".unit-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        for (let r = 0; r < ROWS; r++) leftCount[r] = 0;
+        const L = calcLayout();
+        for (let r = 0; r < ROWS; r++) animateRow(r, L, 200, false);
+        updateCountDisplay();
+        speakUnitLabel(countUnit);
+      });
+    });
+
+    // ----------------------------------------------------------------
+    // 分解・階段・合成ボタン
+    // ----------------------------------------------------------------
+    document.getElementById("bunkai-btn").addEventListener("click", () => {
+      ensureAudioAndPreload();
+      runBunkai();
+    });
+    document.getElementById("kaidan-btn").addEventListener("click", () => {
+      ensureAudioAndPreload();
+      runKaidan();
+    });
+    document.getElementById("gousei-btn").addEventListener("click", () => {
+      ensureAudioAndPreload();
+      runGousei();
+    });
+
+    // ----------------------------------------------------------------
     // レイアウト計算
     // ----------------------------------------------------------------
     function calcLayout() {
@@ -334,16 +415,7 @@
       const availH = vh   - headerH - creditH - 10;
 
       // 玉サイズをW/H両方から正確に逆算して小さい方を採用
-      // CW = RW + PX*2 = (N*S*2-2) + PX*2, S = R*2+2
-      // PX = max(14, R*1.5)
-      //   PX=R*1.5 のとき: CW = 40R+38+3R = 43R+38  → R = (availW-38)/43
-      //   PX=14 のとき:    CW = 40R+38+28 = 40R+66  → R = (availW-66)/40
-      // 両方計算して小さい方（確実に収まる方）を採用
       const unitW = Math.min((availW - 38) / 43, (availW - 66) / 40);
-      // CH = ROWS*RH + PY*2 = ROWS*(S+4) + PY*2, S = R*2+2
-      // PY = max(14, R*1.5)
-      //   PY=R*1.5 のとき: CH = ROWS*(2R+6)+3R = (2*ROWS+3)*R+6*ROWS → R = (availH-6*ROWS)/(2*ROWS+3)
-      //   PY=14 のとき:    CH = ROWS*(2R+6)+28 = 2*ROWS*R+6*ROWS+28  → R = (availH-6*ROWS-28)/(2*ROWS)
       const unitH = Math.min((availH - 6 * ROWS) / (2 * ROWS + 3), (availH - 6 * ROWS - 28) / (2 * ROWS));
 
       const R  = Math.max(8, Math.min(22, Math.floor(Math.min(unitW, unitH))));
@@ -494,8 +566,8 @@
         }
       });
       await Promise.all(promises);
-      voiceReady = true;
-      console.log("音声プリロード完了");
+      voiceReady = Object.keys(audioBuffers).length > 0;
+      console.log("音声プリロード完了 voiceReady=" + voiceReady + " 読込数=" + Object.keys(audioBuffers).length);
     }
 
     // ----------------------------------------------------------------
@@ -538,18 +610,53 @@
     let currentVoiceNodes = null;
 
     // ----------------------------------------------------------------
-    // 音声読み上げ（外部から呼ぶ関数）
+    // 音声読み上げ
     // ----------------------------------------------------------------
     function speakCount(count, up) {
       if (!voiceOn) return;
-      if (voiceReady) {
-        // プリロード済み → 即再生（ラグなし）
+      if (voiceReady && count <= 100) {
         playVoiceBuffers(getVoiceFiles(count, up));
       } else {
-        // フォールバック：Web Speech API
         if (!window.speechSynthesis) return;
         window.speechSynthesis.cancel();
-        const utt = new SpeechSynthesisUtterance(countToText(count, up));
+        const text = count <= 100 ? countToText(count, up) : String(count);
+        const utt = new SpeechSynthesisUtterance(text);
+        utt.lang = "ja-JP"; utt.rate = calcSpeechRate();
+        window.speechSynthesis.speak(utt);
+      }
+    }
+
+    // 任意テキストを読み上げ、完了をPromiseで返す（デモ用）
+    // durationHint_ms: wavがない場合に外側でwaitする想定時間（ms）
+    function speakPhrase(text, durationHint_ms) {
+      return new Promise(resolve => {
+        if (!voiceOn) { resolve(); return; }
+        if (!window.speechSynthesis) { resolve(); return; }
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(text);
+        utt.lang  = "ja-JP";
+        utt.rate  = 0.85;   // デモは少しゆっくり
+        utt.onend = () => resolve();
+        utt.onerror = () => resolve();
+        window.speechSynthesis.speak(utt);
+        // safariなどonendが発火しない環境向けのタイムアウト保険
+        setTimeout(resolve, durationHint_ms || 3000);
+      });
+    }
+
+    // 単位ボタン押下時の読み上げ（「1こ、いち／じゅう／ひゃく」）
+    function speakUnitLabel(unit) {
+      if (!voiceOn) return;
+      const unitText = { 1: "いち", 10: "じゅう", 100: "ひゃく" }[unit];
+      if (voiceReady) {
+        const oneFile  = getVoiceFiles(1,   true)[0];
+        const unitFile = getVoiceFiles(unit, true)[0];
+        const files = unitFile === oneFile ? [oneFile] : [oneFile, unitFile];
+        playVoiceBuffers(files);
+      } else {
+        if (!window.speechSynthesis) return;
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance("1こ、" + unitText);
         utt.lang = "ja-JP"; utt.rate = calcSpeechRate();
         window.speechSynthesis.speak(utt);
       }
@@ -583,6 +690,42 @@
       return rightEdge - rIdx * S;
     }
 
+    // 中央配置：左5個・右5個が棒の中心から左右対称に並ぶ
+    // 棒の中心 = PX + RW/2
+    // 左グループ：中心の左にS*5の幅、右端が中心に接する
+    //   physIdx=0..4 → 中心 - (5-physIdx)*S + R  → 中心 - 4S + R, 中心-3S+R, ...
+    // 右グループ：中心の右にS*5の幅、左端が中心に接する
+    //   physIdx=5..9 → 中心 + (physIdx-5)*S + R  → 中心+R, 中心+S+R, ...
+    function calcXCenter(physIdx, L) {
+      const { R, S, PX, RW } = L;
+      const center = PX + RW / 2;
+      if (physIdx < 5) {
+        // 左グループ：physIdx=4が中心に最も近い
+        return center - (4 - physIdx) * S - R;
+      } else {
+        // 右グループ：physIdx=5が中心に最も近い
+        return center + (physIdx - 5) * S + R;
+      }
+    }
+
+    // 任意のcx配列を指定して行をアニメーション（分解/合成/階段用）
+    function animateRowToPositions(row, cxArray, L, animMs) {
+      const { R } = L;
+      const durSec = (animMs / 1000).toFixed(3) + "s";
+      const trans  = `cx ${durSec} cubic-bezier(0.25,0.46,0.45,0.94)`;
+      for (let i = 0; i < N; i++) {
+        if (!beadEls[row] || !beadEls[row][i]) continue;
+        const { circle, highlight, shadow } = beadEls[row][i];
+        const newCx = cxArray[i];
+        circle.style.transition    = trans;
+        highlight.style.transition = trans;
+        shadow.style.transition    = trans;
+        circle.setAttribute("cx",    newCx);
+        highlight.setAttribute("cx", newCx - R * 0.28);
+        shadow.setAttribute("cx",    newCx);
+      }
+    }
+
     // ----------------------------------------------------------------
     // 行アニメーション
     // ----------------------------------------------------------------
@@ -610,15 +753,29 @@
     // 自由移動モード：玉タップ処理
     // ----------------------------------------------------------------
     function handleBeadTap(row, physIdx) {
+      if (demoRunning) {
+        // デモ中のタップ → 中断
+        demoStopped = true;
+        demoRunning = false;
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        return;
+      }
       const lc = leftCount[row];
       let newLc;
       const isLeft = physIdx < lc;
       if (moveMode === "all") {
         newLc = isLeft ? physIdx : physIdx + 1;
+      } else if (moveMode === 1) {
+        newLc = isLeft ? lc - 1 : lc + 1;
       } else {
-        newLc = isLeft
-          ? lc - Math.min(moveMode, physIdx + 1)
-          : lc + Math.min(moveMode, N - physIdx);
+        if (isLeft) {
+          const rem = lc % moveMode;
+          newLc = rem === 0 ? lc - moveMode : lc - rem;
+        } else {
+          const rem = lc % moveMode;
+          newLc = rem === 0 ? lc + moveMode : lc + (moveMode - rem);
+        }
+        newLc = Math.max(0, Math.min(N, newLc));
       }
       if (newLc === lc) return;
       leftCount[row] = newLc;
@@ -702,7 +859,7 @@
       const animMs   = Math.min(220, Math.max(60, Math.abs(delta) * 22));
       affectedRows.forEach(row => animateRow(row, L, animMs, false));
 
-      const newCount = getCount();
+      const newCount = getDisplayCount();
       setTimeout(() => {
         playKnock();
         speakCount(newCount, isUp);
@@ -723,6 +880,190 @@
       tapR.addEventListener("touchend", onRight, {passive: false});
       tapL.addEventListener("click",    onLeft);
       tapL.addEventListener("touchend", onLeft,  {passive: false});
+    }
+
+    // ----------------------------------------------------------------
+    // ユーティリティ：ms待機
+    // ----------------------------------------------------------------
+    function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // ----------------------------------------------------------------
+    // デモ共通：全段を右端にリセット（leftCount=0）
+    // ----------------------------------------------------------------
+    function resetAllToRight(L, animMs) {
+      for (let r = 0; r < ROWS; r++) leftCount[r] = 0;
+      for (let r = 0; r < ROWS; r++) animateRow(r, L, animMs, false);
+    }
+
+    // ----------------------------------------------------------------
+    // デモ共通：全段を中央配置にする（leftCountには影響しない）
+    // ----------------------------------------------------------------
+    function moveAllToCenter(L, animMs) {
+      const cxArray = Array.from({length: N}, (_, i) => calcXCenter(i, L));
+      for (let r = 0; r < ROWS; r++) {
+        animateRowToPositions(r, cxArray, L, animMs);
+      }
+    }
+
+    // 1段を左L個・右(10-L)個の端配置にする（leftCountも更新）
+    function moveRowToSplit(row, leftNum, L, animMs) {
+      leftCount[row] = leftNum;
+      animateRow(row, L, animMs, false);
+    }
+
+    // 1段を中央配置にする（leftCountは変えない）
+    function moveRowToCenter(row, L, animMs) {
+      const cxArray = Array.from({length: N}, (_, i) => calcXCenter(i, L));
+      animateRowToPositions(row, cxArray, L, animMs);
+    }
+
+    // 各段の数値テキスト（読み上げ用）
+    const NUMS_JP_UP   = ["れい","いち","に","さん","し","ご","ろく","しち","はち","く","じゅう"];
+    const NUMS_JP_DOWN = ["れい","いち","に","さん","よん","ご","ろく","なな","はち","きゅう","じゅう"];
+
+    // ----------------------------------------------------------------
+    // 「分解」デモ
+    // ----------------------------------------------------------------
+    async function runBunkai() {
+      if (demoRunning) return;
+      demoRunning = true;
+      demoStopped = false;
+      const L = calcLayout();
+      const { R, S, PX, RW } = L;
+      const ANIM = 350;
+      const leftEdge  = PX + R;
+      const rightEdge = PX + RW - R;
+
+      await speakPhrase("じゅうのぶんかい", 2200);
+      if (demoStopped) { demoRunning = false; return; }
+      await wait(300);
+
+      moveAllToCenter(L, ANIM);
+      await wait(ANIM + 300);
+      if (demoStopped) { demoRunning = false; return; }
+
+      for (let row = 0; row < ROWS; row++) {
+        const left      = row + 1;
+        const right     = N - left;
+        const leftWord  = NUMS_JP_UP[left];
+        const rightWord = NUMS_JP_DOWN[right];
+
+        await speakPhrase("じゅうは", 700);
+        if (demoStopped) { demoRunning = false; return; }
+
+        {
+          const cxArray = Array.from({length: N}, (_, i) => {
+            if (i < left) return leftEdge + i * S;
+            return calcXCenter(i, L);
+          });
+          animateRowToPositions(row, cxArray, L, ANIM);
+          leftCount[row] = left;
+          setTimeout(playKnock, ANIM - 60);
+        }
+        await speakPhrase(leftWord + "と", 800);
+        if (demoStopped) { demoRunning = false; return; }
+
+        {
+          const cxArray = Array.from({length: N}, (_, i) => {
+            if (i < left) return leftEdge + i * S;
+            const rIdx = N - 1 - i;
+            return rightEdge - rIdx * S;
+          });
+          animateRowToPositions(row, cxArray, L, ANIM);
+          if (right > 0) setTimeout(playKnock, ANIM - 60);
+        }
+        await speakPhrase(rightWord, 700);
+        if (demoStopped) { demoRunning = false; return; }
+        await wait(300);
+        if (demoStopped) { demoRunning = false; return; }
+      }
+
+      demoRunning = false;
+    }
+
+    // ----------------------------------------------------------------
+    // 「階段」デモ
+    // ----------------------------------------------------------------
+    async function runKaidan() {
+      if (demoRunning) return;
+      demoRunning = true;
+      demoStopped = false;
+      const L = calcLayout();
+      const ANIM = 300;
+
+      resetAllToRight(L, ANIM);
+      await wait(ANIM + 200);
+      if (demoStopped) { demoRunning = false; return; }
+
+      await speakPhrase("じゅうのかいだん", 2200);
+      if (demoStopped) { demoRunning = false; return; }
+      await wait(300);
+
+      for (let row = 0; row < ROWS; row++) {
+        const num     = row + 1;
+        const numWord = NUMS_JP_UP[num];
+
+        leftCount[row] = num;
+        animateRow(row, L, ANIM, false);
+        setTimeout(playKnock, ANIM);
+
+        await speakPhrase(numWord, 1000);
+        if (demoStopped) { demoRunning = false; return; }
+        await wait(250);
+        if (demoStopped) { demoRunning = false; return; }
+      }
+
+      demoRunning = false;
+    }
+
+    // ----------------------------------------------------------------
+    // 「合成」デモ
+    // ----------------------------------------------------------------
+    async function runGousei() {
+      if (demoRunning) return;
+      demoRunning = true;
+      demoStopped = false;
+      const L = calcLayout();
+      const ANIM = 350;
+
+      // 1. 階段状態にする
+      for (let r = 0; r < ROWS; r++) leftCount[r] = r + 1;
+      for (let r = 0; r < ROWS; r++) animateRow(r, L, ANIM, false);
+      await wait(ANIM + 300);
+      if (demoStopped) { demoRunning = false; return; }
+
+      // 2. タイトル読み上げ
+      await speakPhrase("じゅうのごうせい", 2200);
+      if (demoStopped) { demoRunning = false; return; }
+      await wait(300);
+
+      // 3. 各段
+      for (let row = 0; row < ROWS; row++) {
+        const left  = row + 1;
+        const right = N - left;
+        const leftWord  = NUMS_JP_UP[left];
+        const rightWord = NUMS_JP_DOWN[right];
+
+        const cxCenter = Array.from({length: N}, (_, i) => calcXCenter(i, L));
+
+        const cxLeft = Array.from({length: N}, (_, i) => {
+          if (i < left) return cxCenter[i];
+          return calcX(row, i, L);
+        });
+        animateRowToPositions(row, cxLeft, L, ANIM);
+
+        const rightDelay = 650;
+        setTimeout(() => {
+          if (!demoStopped) animateRowToPositions(row, cxCenter, L, ANIM);
+        }, rightDelay);
+
+        await speakPhrase(`${leftWord}と、${rightWord}で、じゅう`, 2200);
+        if (demoStopped) { demoRunning = false; return; }
+        await wait(400);
+        if (demoStopped) { demoRunning = false; return; }
+      }
+
+      demoRunning = false;
     }
 
     // ----------------------------------------------------------------
@@ -749,8 +1090,10 @@
 
       title.style.fontSize = TS + "px";
       title.style.marginBottom = Math.max(1, TS * 0.12) + "px";
-      document.getElementById("app-mode-bar").style.marginBottom = Math.max(1, TS * 0.12) + "px";
-      document.getElementById("ctrl-bar").style.marginBottom     = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("app-mode-bar").style.marginBottom   = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("ctrl-bar").style.marginBottom       = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("count-unit-bar").style.marginBottom = Math.max(1, TS * 0.12) + "px";
+      document.getElementById("demo-bar").style.marginBottom       = Math.max(1, TS * 0.12) + "px";
       document.querySelectorAll(".btn").forEach(btn => {
         btn.style.fontSize     = BS + "px";
         btn.style.padding      = `${BS*0.28}px ${BS*0.55}px`;
