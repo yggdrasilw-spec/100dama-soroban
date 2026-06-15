@@ -645,36 +645,73 @@
     }
 
     // 単位ボタン押下時の読み上げ（「1こ、いち／じゅう／ひゃく」）
-    function speakUnitLabel(unit) {
+    function speakText(text, rate) {
       if (!voiceOn) return;
-      const unitText = { 1: "いち", 10: "じゅう", 100: "ひゃく" }[unit];
-      if (voiceReady) {
-        const oneFile  = getVoiceFiles(1,   true)[0];
-        const unitFile = getVoiceFiles(unit, true)[0];
-        const files = unitFile === oneFile ? [oneFile] : [oneFile, unitFile];
-        playVoiceBuffers(files);
-      } else {
-        if (!window.speechSynthesis) return;
-        window.speechSynthesis.cancel();
-        const utt = new SpeechSynthesisUtterance("1こ、" + unitText);
-        utt.lang = "ja-JP"; utt.rate = calcSpeechRate();
-        window.speechSynthesis.speak(utt);
-      }
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.lang = "ja-JP";
+      utt.rate = rate || calcSpeechRate();
+      window.speechSynthesis.speak(utt);
     }
 
-    // フォールバック用テキスト変換（既存関数を流用）
+    function speakUnitLabel(unit) {
+      const unitText = { 1: "いち", 10: "じゅう", 100: "ひゃく" }[unit];
+      speakText("いちこ、" + unitText);
+    }
+
+    // フォールバック用テキスト変換（10000までの読み）
     const onesUp   = ["れい","いち","に","さん","し","ご","ろく","しち","はち","く"];
     const onesDown = ["れい","いち","に","さん","よん","ご","ろく","なな","はち","きゅう"];
-    const tens     = ["","じゅう","にじゅう","さんじゅう","よんじゅう",
-                      "ごじゅう","ろくじゅう","ななじゅう","はちじゅう","きゅうじゅう"];
+    const onesStd  = ["れい","いち","に","さん","よん","ご","ろく","なな","はち","きゅう"];
+    const thousandsText = {
+      1: "せん",
+      2: "にせん",
+      3: "さんぜん",
+      4: "よんせん",
+      5: "ごせん",
+      6: "ろくせん",
+      7: "ななせん",
+      8: "はっせん",
+      9: "きゅうせん"
+    };
+    const hundredsText = {
+      1: "ひゃく",
+      2: "にひゃく",
+      3: "さんびゃく",
+      4: "よんひゃく",
+      5: "ごひゃく",
+      6: "ろっぴゃく",
+      7: "ななひゃく",
+      8: "はっぴゃく",
+      9: "きゅうひゃく"
+    };
     function countToText(count, up) {
+      if (count === 0) return "れい";
       if (count === 100) return "ひゃく";
-      if (count === 0)   return "れい";
-      const t = Math.floor(count / 10), o = count % 10;
-      const ot = up ? onesUp : onesDown;
-      if (o === 0) return tens[t];
-      if (t === 0) return ot[o];
-      return tens[t] + ot[o];
+      if (count === 10000) return "いちまん";
+      if (count < 0 || count > 10000) return String(count);
+
+      if (count <= 100) {
+        const t = Math.floor(count / 10);
+        const o = count % 10;
+        const ot = up ? onesUp : onesDown;
+        if (o === 0) return t === 0 ? "れい" : (t === 1 ? "じゅう" : (ot[t] + "じゅう"));
+        if (t === 0) return ot[o];
+        return (t === 1 ? "じゅう" : (ot[t] + "じゅう")) + ot[o];
+      }
+
+      const thousands = Math.floor(count / 1000);
+      const hundreds  = Math.floor((count % 1000) / 100);
+      const tens      = Math.floor((count % 100) / 10);
+      const ones      = count % 10;
+
+      let result = "";
+      if (thousands) result += thousandsText[thousands] || (onesStd[thousands] + "せん");
+      if (hundreds)  result += hundredsText[hundreds]   || (onesStd[hundreds] + "ひゃく");
+      if (tens)      result += (tens === 1) ? "じゅう" : (onesStd[tens] + "じゅう");
+      if (ones)      result += onesStd[ones];
+      return result;
     }
 
     // ----------------------------------------------------------------
@@ -1205,10 +1242,30 @@
     // AudioContextはユーザー操作後に生成が必要なブラウザもある
     // → 最初のタップで audioCtx を生成し、その直後にプリロード開始
     let voicePreloadStarted = false;
+    let speechWarmupDone = false;
+
+    function warmupSpeechSynthesis() {
+      if (speechWarmupDone) return;
+      if (!window.speechSynthesis) return;
+      speechWarmupDone = true;
+      try {
+        const utt = new SpeechSynthesisUtterance("あ");
+        utt.lang = "ja-JP";
+        utt.rate = 1.0;
+        utt.pitch = 1.0;
+        utt.volume = 0;
+        window.speechSynthesis.speak(utt);
+      } catch (e) {}
+    }
+
     function ensureAudioAndPreload() {
       if (voicePreloadStarted) return;
       voicePreloadStarted = true;
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx && audioCtx.state === "suspended" && audioCtx.resume) {
+        audioCtx.resume().catch(() => {});
+      }
+      warmupSpeechSynthesis();
       preloadVoiceFiles();
     }
     // ボタン類・タップエリアの最初の操作でプリロード開始
